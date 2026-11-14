@@ -1,5 +1,14 @@
-%% corrected_consensus_K_2026_11_12.m
-% Corrected consensus clustering for choosing K (Supplementary Fig. S2A-D, Table Sx).
+function step06_consensus_metrics(prototypesFile, outputDir, doNull)
+% STEP06_CONSENSUS_METRICS  Corrected consensus clustering for choosing K
+% (Supplementary Fig. S2A-D, Table Sx).
+%
+%   step06_consensus_metrics(prototypesFile, outputDir)
+%   step06_consensus_metrics(prototypesFile, outputDir, true)   % ROI-permuted null
+%
+%   prototypesFile  .mat file containing X_prototypes (1 x 240 cell, each 200 x 64)
+%   outputDir       folder for the .mat, .csv and .png outputs (created if missing)
+%   doNull          false (default) = real data. true = null reference in which each
+%                   ROI is shuffled independently across prototypes.
 %
 % WHAT WAS WRONG BEFORE
 %   CAP_ConsensusClustering(_efficient) (TbCAPs) expects each subject's data as
@@ -13,7 +22,7 @@
 %   every resample (48,000 x 20 int8 per K) and computes every metric EXACTLY
 %   over all 1.15e9 prototype pairs, block by block.
 %
-% PROCEDURE (same as the toolbox call in "consensus_clustering_64 step 1.m")
+% PROCEDURE (same as the toolbox call in step09_run_clustering.m)
 %   items = 48,000 prototypes, features = 64 ROIs, K = 2..20,
 %   20 resamples per K, 80% of items drawn without replacement per resample,
 %   kmeans 'correlation' (Start 'plus', 5 replicates per resample). 5 replicates
@@ -28,20 +37,20 @@
 %              as implemented in ConsensusClusterPlus)
 %
 % RUNTIME / MEMORY: roughly 1-2 h and ~2 GB RAM on a lab workstation.
-% Requires: Statistics and Machine Learning Toolbox. MATLAB R2016b+ (implicit expansion).
-% Note: MATLAB script names must start with a letter, so the date is at the end.
+% Requires: Statistics and Machine Learning Toolbox. MATLAB R2019b+ (arguments blocks).
 
-clear; clc;
-doNull = false;   % false = real data. Set true and run again for the ROI-permuted null
-                  % reference (each ROI shuffled independently across prototypes).
+arguments
+    prototypesFile (1,:) char
+    outputDir (1,:) char
+    doNull (1,1) logical = false
+end
+
+if ~exist(outputDir, 'dir'), mkdir(outputDir); end
 rng(4 + doNull, 'twister');                % reproducible
 
 %% ---- Load prototypes --------------------------------------------------
-% Option 1 (default): from the saved workspace that contains X_prototypes
-S = load('matlab.mat', 'X_prototypes');    % adjust path if needed
+S = load(prototypesFile, 'X_prototypes');
 X_prototypes = S.X_prototypes; clear S;
-% Option 2: re-generate with "consensus_clustering_64 step 1.m" (up to the
-% prototype loop), then run this script with X_prototypes in the workspace.
 
 X = cell2mat(X_prototypes(:));             % (240*200) x 64 : items = prototypes
 assert(isequal(size(X), [48000 64]), 'Expected 48,000 prototypes x 64 ROIs, got %d x %d', size(X,1), size(X,2));
@@ -49,7 +58,7 @@ if doNull
     for j = 1:size(X,2), X(:,j) = X(randperm(size(X,1)), j); end
     tag = 'null';
 else
-    tag = 'corrected';
+    tag = 'real';
 end
 
 %% ---- Parameters -------------------------------------------------------
@@ -139,7 +148,7 @@ DeltaK(1) = CDF_area(1);
 DeltaK(2:end) = (CDF_area(2:end) - CDF_area(1:end-1)) ./ CDF_area(1:end-1);
 
 %% ---- Save compact results (well under 2 GB) ----------------------------
-outFile = sprintf('consensus_metrics_%s_2026_11_12.mat', tag);
+outFile = fullfile(outputDir, sprintf('consensus_metrics_%s.mat', tag));
 save(outFile, 'K_range','PAC','CDF_area','DeltaK','meanC','sdC','F_edges', ...
      'cdf_x','cdf_F','T_all','L_all','subIdx','subC','subOrder','K_show','N','Pcc','-v7');
 fprintf('Saved %s\n', outFile);
@@ -147,11 +156,11 @@ fprintf('Saved %s\n', outFile);
 %% ---- Table Sx ------------------------------------------------------------
 TableSx = table(K_range(:), PAC(:), CDF_area(:), DeltaK(:), meanC(:), sdC(:), ...
     'VariableNames', {'K','PAC','CDF_area','DeltaK','MeanConsensus','SDConsensus'});
-writetable(TableSx, sprintf('TableSx_consensus_metrics_%s_2026_11_12.csv', tag));
+writetable(TableSx, fullfile(outputDir, sprintf('TableSx_consensus_metrics_%s.csv', tag)));
 disp(TableSx);
 if doNull, return; end   % figures are made from the real-data run
-% Publication figures with the null overlay:
-%   python make_figS2_2026_11_12.py consensus_metrics_corrected_2026_11_12.mat figs consensus_metrics_null_2026_11_12.mat
+% Publication figures with the null overlay are made from consensus_metrics_real.mat
+% and consensus_metrics_null.mat (the plotting script is not part of this repository).
 
 %% ---- Quick-look figures (S2A-S2D) ---------------------------------------
 figure('Color','w','Position',[100 100 1400 900]);
@@ -163,7 +172,7 @@ xlabel('Consensus index'); ylabel('CDF'); title('S2B  CDF, K = 2-20'); colormap(
 cb = colorbar; cb.Ticks = linspace(0,1,5); cb.TickLabels = round(linspace(2,20,5)); cb.Label.String = 'K';
 subplot(2,2,3); plot(K_range, DeltaK, 'k-o','LineWidth',1.5,'MarkerFaceColor','k');
 xlabel('K'); ylabel('\DeltaK (relative change in CDF area)'); title('S2C  \DeltaK'); grid on; xlim([2 20]);
-saveas(gcf, 'FigS2_ABC_quicklook_2026_11_12.png');
+saveas(gcf, fullfile(outputDir, 'FigS2_ABC_quicklook.png'));
 figure('Color','w','Position',[100 100 1500 450]);
 showK = [3 4 5];
 for p = 1:3
@@ -172,4 +181,5 @@ for p = 1:3
     title(sprintf('S2D  K = %d', showK(p)));
 end
 colormap(flipud(gray)); colorbar;
-saveas(gcf, 'FigS2D_quicklook_2026_11_12.png');
+saveas(gcf, fullfile(outputDir, 'FigS2D_quicklook.png'));
+end

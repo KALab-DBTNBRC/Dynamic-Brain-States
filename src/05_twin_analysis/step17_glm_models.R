@@ -3,6 +3,11 @@
 # Combined MZ + DZ twin sample
 # Primary odor measure: Odor_Unadj
 #
+# Usage:
+#   Rscript step17_glm_models.R <mz_workbook.xlsx> <dz_workbook.xlsx> <output_dir>
+#
+# Output: <output_dir>/Brain_Dynamics_Alcohol_Odor_Results_Revised.xlsx
+#
 # Corrected version:
 # - Uses lmerTest::lmer() so mixed-model coefficient p-values exist.
 # - Converts every results list to a data frame before FDR correction.
@@ -26,10 +31,14 @@ for (pkg in packages) {
 }
 
 # 2. FILE LOCATIONS --------------------------------------------
-data_dir <- "/Users/khushbuagarwal/Desktop/ACE/reacemodel"
-
-mz_file <- file.path(data_dir, "Mono_GLM_Sheet-all-states.xlsx")
-dz_file <- file.path(data_dir, "DI_GLM_sheet-all-states.xlsx")
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 3) {
+  stop("Usage: Rscript step17_glm_models.R <mz_workbook.xlsx> <dz_workbook.xlsx> <output_dir>")
+}
+mz_file <- args[1]
+dz_file <- args[2]
+output_dir <- args[3]
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 if (!file.exists(mz_file)) stop("MZ file not found: ", mz_file)
 if (!file.exists(dz_file)) stop("DZ file not found: ", dz_file)
@@ -681,7 +690,7 @@ stopifnot("q_12" %in% names(mixed_alcohol_results))
 
 # 16. EXPORT ---------------------------------------------------
 output_file <- file.path(
-  data_dir,
+  output_dir,
   "Brain_Dynamics_Alcohol_Odor_Results_Revised.xlsx"
 )
 

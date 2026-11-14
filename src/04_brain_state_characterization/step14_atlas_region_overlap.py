@@ -1,13 +1,33 @@
+"""Step 14: contribution of Harvard-Oxford atlas regions to each brain-state map.
+
+For every component (volume) of the 4D centroid image, and for every atlas region, reports
+the mean loading, voxel count, total contribution (mean x voxels) and the region's share of
+the component's summed absolute contribution. One Excel sheet per component.
+
+Inputs:
+    --centroids           4D centroid NIfTI (output of Step 12)
+    --cortical-atlas      HarvardOxford-cort-maxprob-thr25-2mm.nii.gz
+    --subcortical-atlas   HarvardOxford-sub-maxprob-thr25-2mm.nii.gz
+
+Outputs (written to --output-dir):
+    ica_HO_cortical_LRsplit_all_components_new.xlsx   cortical regions, split left/right
+    ica_HO_subcortical_all_components_new.xlsx        subcortical regions
+
+Example:
+    python step14_atlas_region_overlap.py \
+        --centroids centroids_4D.nii.gz \
+        --cortical-atlas HarvardOxford-cort-maxprob-thr25-2mm.nii.gz \
+        --subcortical-atlas HarvardOxford-sub-maxprob-thr25-2mm.nii.gz \
+        --output-dir results/atlas_overlap
+"""
+import argparse
+from pathlib import Path
+
 import nibabel as nib
 import numpy as np
 import pandas as pd
 from nilearn.image import resample_to_img
 
-# ===== USER INPUTS =====
-ica_map_path = r"IC_Labeling/IC_labelling/Step_1_C_to_4D_nifti/centroids_4D.nii.gz"
-
-# Cortical atlas
-cortical_atlas_path = r"IC_Labeling/IC_labelling/atlas_brain_regions/HarvardOxford-cort-maxprob-thr25-2mm.nii.gz"
 cortical_labels = {
     1: "frontal pole", 2: "insular cortex", 3: "superior frontal gyrus", 4: "middle frontal gyrus",
     5: "inferior frontal gyrus, pars triangularis", 6: "inferior frontal gyrus, pars opercularis",
@@ -31,8 +51,6 @@ cortical_labels = {
     47: "supracalcarine cortex", 48: "occipital pole"
 }
 
-# Subcortical atlas
-subcortical_atlas_path = r"IC_Labeling/IC_labelling/atlas_brain_regions/HarvardOxford-sub-maxprob-thr25-2mm.nii.gz"
 subcortical_labels = {
     1: "left cerebral white matter", 2: "left cerebral cortex", 3: "left lateral ventricle",
     4: "left thalamus", 5: "left caudate", 6: "left putamen", 7: "left pallidum", 8: "brain-stem",
@@ -42,7 +60,6 @@ subcortical_labels = {
     20: "right amygdala", 21: "right accumbens"
 }
 
-# ===== FINAL FUNCTION =====
 def extract_to_excel_with_contribution_split_hemisphere(ica_map_path, atlas_path, label_dict, output_excel, split_hemisphere=False):
     ica_img = nib.load(ica_map_path)
     ica_data = ica_img.get_fdata()
@@ -64,7 +81,7 @@ def extract_to_excel_with_contribution_split_hemisphere(ica_map_path, atlas_path
 
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
         for comp_idx in range(n_components):
-            print(f"🔍 Processing component {comp_idx + 1}/{n_components}...")
+            print(f"Processing component {comp_idx + 1}/{n_components}...")
             comp_data = ica_data[..., comp_idx]
             rows = []
 
@@ -113,26 +130,41 @@ def extract_to_excel_with_contribution_split_hemisphere(ica_map_path, atlas_path
 
             sheet_name = f"Comp_{comp_idx + 1:03d}"
             df.to_excel(writer, sheet_name=sheet_name, index=False)
-            print(f"✅ Sheet added: {sheet_name}")
+            print(f"Sheet added: {sheet_name}")
 
-    print(f"\n📁 Excel saved: {output_excel}")
+    print(f"\nExcel saved: {output_excel}")
 
-# ===== RUN THE EXTRACTION =====
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--centroids", required=True, type=Path, help="4D centroid NIfTI")
+    p.add_argument("--cortical-atlas", required=True, type=Path, help="Harvard-Oxford cortical atlas NIfTI")
+    p.add_argument("--subcortical-atlas", required=True, type=Path, help="Harvard-Oxford subcortical atlas NIfTI")
+    p.add_argument("--output-dir", required=True, type=Path, help="Directory for the Excel files")
+    return p.parse_args()
 
-# Cortical (with hemisphere split)
-extract_to_excel_with_contribution_split_hemisphere(
-    ica_map_path,
-    cortical_atlas_path,
-    cortical_labels,
-    output_excel="ica_HO_cortical_LRsplit_all_components_new.xlsx",
-    split_hemisphere=True
-)
 
-# Subcortical (no need to split)
-extract_to_excel_with_contribution_split_hemisphere(
-    ica_map_path,
-    subcortical_atlas_path,
-    subcortical_labels,
-    output_excel="ica_HO_subcortical_all_components_new.xlsx",
-    split_hemisphere=False
-)
+def main():
+    args = parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Cortical (with hemisphere split)
+    extract_to_excel_with_contribution_split_hemisphere(
+        args.centroids,
+        args.cortical_atlas,
+        cortical_labels,
+        output_excel=args.output_dir / "ica_HO_cortical_LRsplit_all_components_new.xlsx",
+        split_hemisphere=True,
+    )
+
+    # Subcortical (no need to split)
+    extract_to_excel_with_contribution_split_hemisphere(
+        args.centroids,
+        args.subcortical_atlas,
+        subcortical_labels,
+        output_excel=args.output_dir / "ica_HO_subcortical_all_components_new.xlsx",
+        split_hemisphere=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

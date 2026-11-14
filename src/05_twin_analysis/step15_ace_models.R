@@ -3,6 +3,14 @@
 # CLASSICAL TWIN MODEL ANALYSIS: ACE / AE / CE / E
 # MZ and DZ twins | 23 phenotypes | OpenMx
 # ==============================================================================
+#
+# Usage:
+#   Rscript step15_ace_models.R <twin_workbook.xlsx> <output_dir>
+#
+# <twin_workbook.xlsx> needs two sheets per phenotype, "<phenotype>_MZ" and
+# "<phenotype>_DZ", each with columns Twin1 and Twin2.
+# Outputs in <output_dir>: ACE_Master_Results.rds, ACE_Master_Results.csv,
+# ACE_Model_Diagnostics.csv
 
 
 # ------------------------------------------------------------------------------
@@ -26,13 +34,17 @@ library(knitr)
 # 2. SETUP FILE PATHS
 # ------------------------------------------------------------------------------
 
-file_path <- "/Users/khushbuagarwal/Desktop/ACE/Twin_Output.xlsx"
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 2) {
+  stop("Usage: Rscript step15_ace_models.R <twin_workbook.xlsx> <output_dir>")
+}
+file_path <- args[1]
 
 if (!file.exists(file_path)) {
   stop("Excel file not found: ", file_path)
 }
 
-output_dir <- "/Users/khushbuagarwal/Desktop/ACE/ACE_Results"
+output_dir <- args[2]
 
 dir.create(
   output_dir,
