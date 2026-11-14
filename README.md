@@ -145,9 +145,7 @@ Keep input data in `data/` and write outputs to `results/`. Both folders are lis
 - **Step 16:** each CSV has `TwinPairID`, `ZygosityGT1` (starting with `MZ` or `DZ`) and one column per state (`State 1`, `state_2`, ...).
 - **Step 15:** the workbook has sheets `<phenotype>_MZ` and `<phenotype>_DZ`, each with columns `Twin1` and `Twin2`.
 
-## Known issues
-
-These were found while cleaning up the code. They are documented rather than changed, because fixing them could change published results.
+## Update Require
 
 1. **Step 3 may drop IC 0 and shift all indices by one.** The script reads the CSVs with `skiprows=N, header=0`, which skips N rows and then treats the next row as the header. Steps 1 and 2 already write their header rows, so the first data row (IC 0) is consumed as the header. Running steps 1-3 on synthetic data gave 299 classified components instead of 300. Check this against your real files.
 2. **Step 2 sampling frequency.** The original comment said `fs` is `1/0.72` (HCP TR), but the value used was `0.5`. The default is kept at 0.5 so results match the earlier analysis. Pass `--fs` to change it. The 0.1 Hz high-frequency cut-off depends on this value.
