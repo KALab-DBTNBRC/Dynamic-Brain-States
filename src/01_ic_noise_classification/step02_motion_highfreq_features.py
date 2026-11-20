@@ -52,8 +52,8 @@ def parse_args():
     p.add_argument("--output-dir", required=True, type=Path, help="Directory for the output CSV files")
     p.add_argument("--n-timepoints", type=int, default=4800, help="Rows per subject time-course file (default: 4800)")
     p.add_argument("--n-components", type=int, default=300, help="Number of ICs (default: 300)")
-    p.add_argument("--fs", type=float, default=0.5,
-                   help="Sampling frequency in Hz, i.e. 1/TR (default: 0.5, the value used in the original analysis)")
+    p.add_argument("--fs", type=float, default=1.39,
+                   help="Sampling frequency in Hz, i.e. 1/TR (default: 1.39, the value used in the original analysis)")
     p.add_argument("--hf-threshold", type=float, default=0.1, help="High-frequency cut-off in Hz (default: 0.1)")
     return p.parse_args()
 
