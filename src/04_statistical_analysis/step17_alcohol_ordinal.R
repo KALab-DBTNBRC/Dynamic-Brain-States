@@ -3,12 +3,11 @@
 # Combined MZ + DZ twin sample
 # Primary odor measure: Odor_Unadj
 #
-# Usage:
-#   Rscript step17_glm_models.R <mz_workbook.xlsx> <dz_workbook.xlsx> <output_dir>
-#
-# Output: <output_dir>/Brain_Dynamics_Alcohol_Odor_Results_Revised.xlsx
-#
 # Corrected version:
+# - Models drinks per drinking day (HCP 0-6 coding) as an ordinal outcome.
+# - Uses cumulative-link mixed models for individual-level ordinal analyses.
+# - Uses cumulative-link models for pair-level absolute ordinal differences.
+# - Keeps signed pair differences in raw ordinal-score units.
 # - Uses lmerTest::lmer() so mixed-model coefficient p-values exist.
 # - Converts every results list to a data frame before FDR correction.
 # - Uses pair mean sex for pair-level models (handles opposite-sex DZ pairs).
@@ -18,7 +17,7 @@
 # 1. PACKAGES --------------------------------------------------
 packages <- c(
   "readxl", "dplyr", "tibble", "lme4", "lmerTest",
-  "sandwich", "lmtest", "openxlsx"
+  "sandwich", "lmtest", "openxlsx", "ordinal"
 )
 
 for (pkg in packages) {
@@ -31,17 +30,18 @@ for (pkg in packages) {
 }
 
 # 2. FILE LOCATIONS --------------------------------------------
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 3) {
-  stop("Usage: Rscript step17_glm_models.R <mz_workbook.xlsx> <dz_workbook.xlsx> <output_dir>")
+data_dir <- "/Users/khushbuagarwal/Desktop/ACE/reacemodel"
+mz_file <- file.path(data_dir, "Mono_GLM_Sheet-all-states.xlsx")
+dz_file <- file.path(data_dir, "DI_GLM_sheet-all-states.xlsx")
+if (!file.exists(mz_file)) {
+  message("Select the MZ workbook (Mono / MZ).")
+  mz_file <- file.choose()
 }
-mz_file <- args[1]
-dz_file <- args[2]
-output_dir <- args[3]
-dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-
-if (!file.exists(mz_file)) stop("MZ file not found: ", mz_file)
-if (!file.exists(dz_file)) stop("DZ file not found: ", dz_file)
+if (!file.exists(dz_file)) {
+  message("Select the DZ workbook (DI / DZ).")
+  dz_file <- file.choose()
+}
+data_dir <- dirname(mz_file)
 
 # 3. READ DATA -------------------------------------------------
 mz <- readxl::read_excel(mz_file, sheet = 1)
@@ -62,6 +62,7 @@ alcohol_vars <- c(
 )
 
 odor_var <- "Odor_Unadj"
+ordinal_alcohol_var <- "SSAGA_Alc_12_Drinks_Per_Day"
 
 brain_vars <- c(
   "FO_State 1", "FO_State 2", "FO_State 3", "FO_State 4",
@@ -71,17 +72,17 @@ brain_vars <- c(
 
 state_labels <- c(
   "FO_State 1" = "Visual Network-A FO",
-  "FO_State 2" = "DMN-C FO",
+  "FO_State 2" = "DMN FO",
   "FO_State 3" = "Visual Network-B FO",
-  "FO_State 4" = "Limbic-B FO",
+  "FO_State 4" = "Hippocampal–Temporoparietal FO",
   "DT_State 1" = "Visual Network-A DT",
-  "DT_State 2" = "DMN-C DT",
+  "DT_State 2" = "DMN DT",
   "DT_State 3" = "Visual Network-B DT",
-  "DT_State 4" = "Limbic-B DT",
+  "DT_State 4" = "Hippocampal–Temporoparietal DT",
   "AR_State 1" = "Visual Network-A AR",
-  "AR_State 2" = "DMN-C AR",
+  "AR_State 2" = "DMN AR",
   "AR_State 3" = "Visual Network-B AR",
-  "AR_State 4" = "Limbic-B AR"
+  "AR_State 4" = "Hippocampal–Temporoparietal AR"
 )
 
 # 5. VALIDATE INPUT COLUMNS ------------------------------------
@@ -124,6 +125,12 @@ numeric_vars <- c(
 
 for (v in numeric_vars) {
   dat[[v]] <- suppressWarnings(as.numeric(dat[[v]]))
+}
+
+bad_codes <- setdiff(unique(stats::na.omit(dat[[ordinal_alcohol_var]])), 0:6)
+if (length(bad_codes) > 0) {
+  stop("Unexpected values in ", ordinal_alcohol_var, ": ",
+       paste(bad_codes, collapse = ", "), ". Check source coding.")
 }
 
 dat$SubjectID <- as.character(dat[[id_var]])
@@ -262,62 +269,222 @@ make_pair_data <- function(data, variables) {
 # Standardized absolute and signed twin differences.
 add_pair_differences <- function(pair_data, variables, source_data) {
   for (v in variables) {
-    sd_v <- stats::sd(source_data[[v]], na.rm = TRUE)
-    
-    if (!is.finite(sd_v) || sd_v == 0) {
-      warning("Invalid SD for variable: ", v)
-      pair_data[[paste0(v, "_abs")]] <- NA_real_
-      pair_data[[paste0(v, "_signed")]] <- NA_real_
+    diff_v <- pair_data[[paste0(v, "_second")]] -
+      pair_data[[paste0(v, "_first")]]
+    if (v == ordinal_alcohol_var) {
+      pair_data[[paste0(v, "_abs")]] <- abs(diff_v)
+      pair_data[[paste0(v, "_signed")]] <- diff_v
     } else {
-      diff_v <- pair_data[[paste0(v, "_second")]] -
-        pair_data[[paste0(v, "_first")]]
-      pair_data[[paste0(v, "_abs")]] <- abs(diff_v) / sd_v
-      pair_data[[paste0(v, "_signed")]] <- diff_v / sd_v
+      sd_v <- stats::sd(source_data[[v]], na.rm = TRUE)
+      if (!is.finite(sd_v) || sd_v == 0) {
+        warning("Invalid SD for variable: ", v)
+        pair_data[[paste0(v, "_abs")]] <- NA_real_
+        pair_data[[paste0(v, "_signed")]] <- NA_real_
+      } else {
+        pair_data[[paste0(v, "_abs")]] <- abs(diff_v) / sd_v
+        pair_data[[paste0(v, "_signed")]] <- diff_v / sd_v
+      }
     }
   }
   pair_data
 }
 
-# Pair-level linear regression with HC3 standard errors.
-fit_pair_lm <- function(d, outcome, predictors, predictor) {
-  model_vars <- c(outcome, predictors)
-  d <- d[stats::complete.cases(d[, model_vars, drop = FALSE]), ,
-         drop = FALSE]
+fit_pair_ordinal <- function(d, outcome, predictors, predictor) {
+  # Internal syntactic names avoid coefficient-name mismatches caused by
+  # spaces in original workbook column names.
+  required <- unique(c(outcome, predictors))
+  absent <- setdiff(required, names(d))
+  if (length(absent)) stop("Missing pair-level columns: ",
+                           paste(absent, collapse = ", "))
   
-  numeric_vars_in_model <- model_vars[
-    vapply(d[, model_vars, drop = FALSE], is.numeric, logical(1))
-  ]
-  
-  if (length(numeric_vars_in_model) > 0 && nrow(d) > 0) {
-    finite_rows <- Reduce(
-      `&`,
-      lapply(numeric_vars_in_model, function(v) is.finite(d[[v]]))
-    )
-    d <- d[finite_rows, , drop = FALSE]
+  dd <- d[, required, drop = FALSE]
+  dd <- dd[stats::complete.cases(dd), , drop = FALSE]
+  numeric_cols <- names(dd)[vapply(dd, is.numeric, logical(1))]
+  if (length(numeric_cols) && nrow(dd)) {
+    keep <- Reduce(`&`, lapply(numeric_cols,
+                               function(v) is.finite(dd[[v]])))
+    dd <- dd[keep, , drop = FALSE]
   }
   
-  if (nrow(d) <= length(predictors) + 3) {
-    return(list(result = empty_result(), n = nrow(d)))
+  if (nrow(dd) <= length(predictors) + 3L ||
+      length(unique(dd[[outcome]])) < 2L) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "Insufficient pairs or fewer than two outcome categories."))
   }
   
+  dd$.ordinal_y <- ordered(dd[[outcome]],
+                           levels = sort(unique(dd[[outcome]])))
+  dd$.target_x <- dd[[predictor]]
+  covariates <- setdiff(predictors, predictor)
+  cov_names <- character(length(covariates))
+  for (i in seq_along(covariates)) {
+    cov_names[i] <- paste0(".cov", i)
+    dd[[cov_names[i]]] <- dd[[covariates[i]]]
+  }
+  
+  if (length(unique(dd$.target_x)) < 2L) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "Brain-state predictor has no variation."))
+  }
+  
+  f <- stats::as.formula(paste(
+    ".ordinal_y ~", paste(c(".target_x", cov_names), collapse = " + ")
+  ))
+  
+  fit_warnings <- character()
   model <- tryCatch(
-    stats::lm(make_formula(outcome, predictors), data = d),
+    withCallingHandlers(
+      ordinal::clm(f, data = dd, link = "logit", Hess = TRUE),
+      warning = function(w) {
+        fit_warnings <<- c(fit_warnings, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      }
+    ),
     error = function(e) {
-      message("Linear model failed: ", conditionMessage(e))
+      message("Pair ordinal model failed for ", outcome, " ~ ",
+              predictor, ": ", conditionMessage(e))
       NULL
     }
   )
   
   if (is.null(model)) {
-    return(list(result = empty_result(), n = nrow(d)))
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = paste(unique(fit_warnings), collapse = " | ")))
   }
   
-  list(result = get_hc3(model, predictor), n = nrow(d))
+  co <- summary(model)$coefficients
+  pcol <- grep("^Pr\\(", colnames(co), value = TRUE)
+  if (!(".target_x" %in% rownames(co)) || !length(pcol)) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "Target coefficient or p-value unavailable."))
+  }
+  
+  beta <- unname(co[".target_x", "Estimate"])
+  se <- unname(co[".target_x", "Std. Error"])
+  pval <- unname(co[".target_x", pcol[1]])
+  
+  list(
+    result = tibble::tibble(
+      beta = beta, SE = se, CI_low = beta - 1.96 * se,
+      CI_high = beta + 1.96 * se, p = pval
+    ),
+    n = nrow(dd),
+    warning = if (length(fit_warnings)) {
+      paste(unique(fit_warnings), collapse = " | ")
+    } else ""
+  )
+}
+
+# Pair-level linear regression with HC3 standard errors. Internal names
+# also make coefficient extraction reliable for source columns with spaces.
+fit_pair_lm <- function(d, outcome, predictors, predictor) {
+  required <- unique(c(outcome, predictors))
+  absent <- setdiff(required, names(d))
+  if (length(absent)) stop("Missing pair-level columns: ",
+                           paste(absent, collapse = ", "))
+  
+  dd <- d[, required, drop = FALSE]
+  dd <- dd[stats::complete.cases(dd), , drop = FALSE]
+  numeric_cols <- names(dd)[vapply(dd, is.numeric, logical(1))]
+  if (length(numeric_cols) && nrow(dd)) {
+    keep <- Reduce(`&`, lapply(numeric_cols,
+                               function(v) is.finite(dd[[v]])))
+    dd <- dd[keep, , drop = FALSE]
+  }
+  
+  if (nrow(dd) <= length(predictors) + 3L) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "Insufficient complete pairs."))
+  }
+  
+  dd$.model_y <- dd[[outcome]]
+  dd$.target_x <- dd[[predictor]]
+  covariates <- setdiff(predictors, predictor)
+  cov_names <- character(length(covariates))
+  for (i in seq_along(covariates)) {
+    cov_names[i] <- paste0(".cov", i)
+    dd[[cov_names[i]]] <- dd[[covariates[i]]]
+  }
+  
+  if (length(unique(dd$.target_x)) < 2L) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "Predictor has no variation."))
+  }
+  
+  f <- stats::as.formula(paste(
+    ".model_y ~", paste(c(".target_x", cov_names), collapse = " + ")
+  ))
+  model <- tryCatch(
+    stats::lm(f, data = dd),
+    error = function(e) {
+      message("Pair linear model failed: ", conditionMessage(e))
+      NULL
+    }
+  )
+  
+  if (is.null(model)) {
+    return(list(result = empty_result(), n = nrow(dd),
+                warning = "lm() failed."))
+  }
+  
+  list(result = get_hc3(model, ".target_x"), n = nrow(dd), warning = "")
+}
+
+fit_wb_ordinal_model <- function(data, predictor, outcome) {
+  needed <- c(predictor, outcome, "PairID",
+              age_var, sex_var, fd_var, smoking_var, "Zygosity")
+  d <- data[stats::complete.cases(data[, needed, drop = FALSE]), ,
+            drop = FALSE]
+  numeric_needed <- c(predictor, age_var, sex_var, fd_var, smoking_var)
+  finite_rows <- Reduce(`&`, lapply(numeric_needed,
+                                    function(v) is.finite(d[[v]])))
+  d <- d[finite_rows, , drop = FALSE]
+  d[[outcome]] <- ordered(d[[outcome]], levels = sort(unique(d[[outcome]])))
+  if (nrow(d) < 20 || length(unique(d$PairID)) < 10 ||
+      length(unique(d[[outcome]])) < 2)
+    stop("Insufficient data for ordinal mixed model.")
+  d <- d %>% dplyr::group_by(PairID) %>%
+    dplyr::mutate(
+      pair_mean_predictor = mean(.data[[predictor]], na.rm = TRUE),
+      within_component = .data[[predictor]] - pair_mean_predictor,
+      between_component = pair_mean_predictor
+    ) %>% dplyr::ungroup()
+  sx <- stats::sd(d[[predictor]], na.rm = TRUE)
+  if (!is.finite(sx) || sx == 0) stop("Invalid predictor variance.")
+  d$within_component <- d$within_component / sx
+  d$between_component <- d$between_component / sx
+  d$AgeModel <- as.numeric(d[[age_var]])
+  d$SexModel <- factor(d[[sex_var]])
+  d$FDModel <- as.numeric(d[[fd_var]])
+  d$SmokingModel <- factor(d[[smoking_var]])
+  d$Zygosity <- droplevels(factor(d$Zygosity))
+  f <- stats::as.formula(paste0(
+    "`", outcome, "` ~ within_component + between_component + ",
+    "AgeModel + SexModel + FDModel + SmokingModel + Zygosity + (1 | PairID)"
+  ))
+  model <- ordinal::clmm(f, data = d, link = "logit", Hess = TRUE, nAGQ = 1)
+  co <- as.data.frame(summary(model)$coefficients)
+  terms <- c("within_component", "between_component")
+  if (!all(terms %in% rownames(co))) stop("Ordinal model coefficients missing.")
+  pcol <- grep("^Pr\\(", names(co), value = TRUE)
+  if (!length(pcol)) stop("Ordinal model p-values unavailable.")
+  tibble::tibble(
+    effect = c("within", "between"),
+    beta = unname(co[terms, "Estimate"]),
+    SE = unname(co[terms, "Std. Error"]),
+    CI_low = unname(co[terms, "Estimate"] - 1.96 * co[terms, "Std. Error"]),
+    CI_high = unname(co[terms, "Estimate"] + 1.96 * co[terms, "Std. Error"]),
+    p = unname(co[terms, pcol[1]]),
+    n = nrow(d), pairs = length(unique(d$PairID)), singular = NA
+  )
 }
 
 # Within-between mixed-effects model.
 # IMPORTANT: lmerTest::lmer() is used explicitly to obtain p-values.
 fit_wb_model <- function(data, predictor, outcome) {
+  if (identical(outcome, ordinal_alcohol_var)) {
+    return(fit_wb_ordinal_model(data, predictor, outcome))
+  }
   needed <- c(
     predictor, outcome, "PairID",
     age_var, sex_var, fd_var, smoking_var, "Zygosity"
@@ -451,7 +618,11 @@ for (outcome in alcohol_vars) {
     predictors <- c(x, "age_mean", "sex_mean", "fd_mean",
                     "smoking_mean", "zygosity")
     
-    ans <- fit_pair_lm(pair_brain_alcohol, y, predictors, x)
+    if (identical(outcome, ordinal_alcohol_var)) {
+      ans <- fit_pair_ordinal(pair_brain_alcohol, y, predictors, x)
+    } else {
+      ans <- fit_pair_lm(pair_brain_alcohol, y, predictors, x)
+    }
     
     pair_similarity_results[[length(pair_similarity_results) + 1]] <-
       dplyr::mutate(
@@ -459,12 +630,26 @@ for (outcome in alcohol_vars) {
         brain = brain,
         brain_label = unname(state_labels[brain]),
         outcome = outcome,
-        n_pairs = ans$n
+        n_pairs = ans$n,
+        model_warning = if (!is.null(ans$warning)) ans$warning else ""
       )
   }
 }
 
 pair_similarity_results <- add_fdr(pair_similarity_results, "outcome")
+
+ordinal_pair_check <- pair_similarity_results[
+  pair_similarity_results$outcome == ordinal_alcohol_var, , drop = FALSE
+]
+if (nrow(ordinal_pair_check) != length(brain_vars)) {
+  stop("Unexpected number of pair-level ordinal models.")
+}
+if (all(is.na(ordinal_pair_check$p))) {
+  warning(
+    "All pair-level ordinal models returned missing p-values. ",
+    "Inspect model_warning; do not interpret these as null findings."
+  )
+}
 
 # 9. ANALYSIS 2: ALCOHOL SIGNED WITHIN-PAIR DIFFERENCES ---------
 cat("\nAnalysis 2: Alcohol signed within-pair differences\n")
@@ -643,6 +828,31 @@ for (outcome in alcohol_vars) {
 
 odor_alcohol_pair <- dplyr::bind_rows(odor_alcohol_pair)
 
+# 15.5 DATA AND MODEL AUDIT -------------------------------------
+alcohol_code_audit <- as.data.frame(
+  table(
+    zygosity = dat$Zygosity,
+    drinks_per_drinking_day_code = factor(
+      dat[[ordinal_alcohol_var]], levels = 0:6
+    ),
+    useNA = "ifany"
+  ),
+  stringsAsFactors = FALSE
+)
+
+pair_availability_audit <- dplyr::bind_rows(lapply(alcohol_vars, function(v) {
+  pp <- make_pair_data(dat, v)
+  valid <- !is.na(pp[[paste0(v, "_first")]]) &
+    !is.na(pp[[paste0(v, "_second")]])
+  data.frame(
+    outcome = v,
+    complete_pairs = sum(valid),
+    incomplete_pairs = sum(!valid),
+    stringsAsFactors = FALSE
+  )
+}))
+
+
 # 15. FINAL CHECKS ---------------------------------------------
 results_list <- list(
   Alcohol_Pair_Similarity = pair_similarity_results,
@@ -651,15 +861,23 @@ results_list <- list(
   Odor_Brain_Mixed = odor_brain_results,
   Odor_Brain_Pair = odor_pair_results,
   Odor_Alcohol_Mixed = odor_alcohol_mixed,
-  Odor_Alcohol_Pair = odor_alcohol_pair
+  Odor_Alcohol_Pair = odor_alcohol_pair,
+  Alcohol_Code_Audit = alcohol_code_audit,
+  Pair_Availability_Audit = pair_availability_audit
 )
 
 cat("\nRESULTS CHECK\n")
 for (sheet_name in names(results_list)) {
   result_table <- results_list[[sheet_name]]
+  n_valid_p <- if ("p" %in% names(result_table)) {
+    sum(!is.na(result_table$p))
+  } else {
+    NA_integer_
+  }
+  p_text <- if (is.na(n_valid_p)) "not applicable" else as.character(n_valid_p)
   cat(
     sheet_name, ": ", nrow(result_table), " rows; ",
-    sum(!is.na(result_table$p)), " valid p-values\n",
+    p_text, " valid p-values\\n",
     sep = ""
   )
 }
@@ -688,10 +906,11 @@ for (nm in names(expected_rows)) {
 stopifnot("p" %in% names(mixed_alcohol_results))
 stopifnot("q_12" %in% names(mixed_alcohol_results))
 
+
 # 16. EXPORT ---------------------------------------------------
 output_file <- file.path(
-  output_dir,
-  "Brain_Dynamics_Alcohol_Odor_Results_Revised.xlsx"
+  data_dir,
+  "Brain_Dynamics_Alcohol_Odor_Results_Final.xlsx"
 )
 
 openxlsx::write.xlsx(

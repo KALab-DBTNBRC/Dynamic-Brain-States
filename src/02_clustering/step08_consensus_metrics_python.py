@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io as sio
 
-from consensus_core import run_consensus_labels, pair_count_table, table_metrics, subset_consensus
+from step07_consensus_core import run_consensus_labels, pair_count_table, table_metrics, subset_consensus
 
 
 def parse_args():

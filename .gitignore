@@ -1,30 +1,7 @@
-# Data and results are never committed (large, and may be subject to data-use agreements)
-data/
+inputs/*
+!inputs/README.md
+outputs/
 results/
-*.nii
-*.nii.gz
-*.mat
-*.rds
-*.xlsx
-*.xls
-
-# Python
 __pycache__/
 *.pyc
-.venv/
-venv/
-.ipynb_checkpoints/
-
-# R
-.Rhistory
-.RData
-.Rproj.user/
-
-# MATLAB
-*.asv
-*.autosave
-
-# OS / editor
 .DS_Store
-.idea/
-.vscode/
